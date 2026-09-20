@@ -146,6 +146,22 @@ def _check_expected_version(proj: RunProjection | None, expected_version: int) -
         )
 
 
+def _duplicate_name_message(project: str, name: str) -> str:
+    return (
+        f'项目 "{project}" 下已存在未结束的同名 Run "{name}"，'
+        "请先完成或中止该 Run 后再创建"
+    )
+
+
+def _find_unfinished_run(db: Session, project: str, name: str) -> RunProjection | None:
+    stmt = select(RunProjection).where(
+        RunProjection.project == project,
+        RunProjection.name == name,
+        RunProjection.status.notin_(TERMINAL_STATUSES),
+    )
+    return db.scalars(stmt).first()
+
+
 def start_run(
     db: Session,
     *,
@@ -165,6 +181,9 @@ def start_run(
     if _get_projection(db, aggregate_id) is not None:
         raise ConflictError("Run 已存在")
 
+    if _find_unfinished_run(db, project, name) is not None:
+        raise ConflictError(_duplicate_name_message(project, name))
+
     event = _append_event(
         db,
         aggregate_id=aggregate_id,
@@ -181,7 +200,12 @@ def start_run(
     )
     proj = _apply_event_to_projection(None, event)
     db.add(proj)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # 并发下唯一部分索引兜底：同一 project 下不允许并存未结束同名 Run
+        db.rollback()
+        raise ConflictError(_duplicate_name_message(project, name)) from exc
     db.refresh(proj)
     return proj
 

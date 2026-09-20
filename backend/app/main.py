@@ -10,6 +10,10 @@ from app.database import Base, engine
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    # create_all 不会为已存在的表补建索引，这里幂等补齐（如唯一部分索引）
+    for table in Base.metadata.tables.values():
+        for index in table.indexes:
+            index.create(bind=engine, checkfirst=True)
     yield
 
 
