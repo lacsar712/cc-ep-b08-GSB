@@ -3,12 +3,23 @@
     <h1>新建实验 Run</h1>
     <p class="muted">提交 StartRun 命令：写入 event_store 并投影为 running</p>
     <div class="card" style="max-width: 720px">
+      <n-alert
+        v-if="errorMessage"
+        type="error"
+        title="创建被拒绝"
+        :show-icon="true"
+        style="margin-bottom: 16px"
+        closable
+        @close="errorMessage = ''"
+      >
+        {{ errorMessage }}
+      </n-alert>
       <n-form label-placement="top">
         <n-form-item label="项目 project" required>
-          <n-input v-model:value="form.project" placeholder="protein-folding" />
+          <n-input v-model:value="form.project" placeholder="protein-folding" @input="errorMessage = ''" />
         </n-form-item>
         <n-form-item label="名称 name" required>
-          <n-input v-model:value="form.name" placeholder="实验名称" />
+          <n-input v-model:value="form.name" placeholder="实验名称" @input="errorMessage = ''" />
         </n-form-item>
         <n-form-item label="数据集指纹 dataset_content_sha256（64 位 hex）" required>
           <n-input v-model:value="form.dataset_content_sha256" class="mono" placeholder="64 hex" />
@@ -36,6 +47,7 @@ import { createRun } from '../api/client'
 const router = useRouter()
 const message = useMessage()
 const loading = ref(false)
+const errorMessage = ref('')
 
 const form = reactive({
   project: 'protein-folding',
@@ -65,13 +77,25 @@ async function submit() {
     message.warning('请填写名称')
     return
   }
+  if (!form.project.trim()) {
+    message.warning('请填写项目')
+    return
+  }
   loading.value = true
+  errorMessage.value = ''
   try {
-    const run = await createRun({ ...form })
+    const run = await createRun({
+      ...form,
+      project: form.project.trim(),
+      name: form.name.trim(),
+    })
     message.success('Run 已启动')
     router.push(`/runs/${run.id}`)
   } catch (e) {
-    message.error(e.message || '创建失败')
+    // 服务端拒绝（如 409：同项目下已有未结束的同名 Run），在表单上方固定展示原因
+    errorMessage.value =
+      e.response?.data?.detail || e.message || '创建失败，请稍后重试'
+    message.error(errorMessage.value)
   } finally {
     loading.value = false
   }

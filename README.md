@@ -67,6 +67,13 @@ pytest -q
 
 终态或 `expected_version` 不匹配时，API 返回 **409**。
 
+### 同名 Run 唯一性
+
+- 同一 `project` 下禁止并存多条**未结束（running）**的同名 Run：新建时服务端查重并返回 **409**，新建页会内联展示拒绝原因。
+- 旧记录 `completed` 或 `aborted` 进入终态后，允许再次使用同名创建新 Run（历史终态记录保留，仅对 running 做部分唯一约束）。
+- 不同 project 之间允许同名。
+- 仅 `researcher` 可执行 StartRun 等命令；`auditor` 前端进不了新建页（路由重定向到列表），直接调用 `POST /api/runs` 返回 **403**。
+
 ## 架构要点
 
 - **命令**：`StartRun` / `RecordMetric` / `AttachArtifact` / `CompleteRun` / `AbortRun`

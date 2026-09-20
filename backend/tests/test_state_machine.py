@@ -218,3 +218,83 @@ def test_cannot_command_before_start(db):
             step=0,
             expected_version=0,
         )
+
+
+def test_duplicate_running_name_in_same_project_rejected(db):
+    common = dict(
+        actor="researcher",
+        project="p1",
+        name="dup-name",
+        dataset_content_sha256=sha("ds-a"),
+        code_commit_sha="abc1234",
+        description=None,
+    )
+    start_run(db, **common)
+    with pytest.raises(ConflictError) as exc_info:
+        start_run(db, **{**common, "dataset_content_sha256": sha("ds-b")})
+    assert "dup-name" in str(exc_info.value)
+    assert exc_info.value.status_code == 409
+
+
+def test_same_name_allowed_in_different_project(db):
+    start_run(
+        db,
+        actor="researcher",
+        project="p1",
+        name="shared-name",
+        dataset_content_sha256=sha("ds-a"),
+        code_commit_sha="abc1234",
+        description=None,
+    )
+    run2 = start_run(
+        db,
+        actor="researcher",
+        project="p2",
+        name="shared-name",
+        dataset_content_sha256=sha("ds-b"),
+        code_commit_sha="abc1234",
+        description=None,
+    )
+    assert run2.status == "running"
+
+
+def test_same_name_reuse_after_complete(db):
+    common = dict(
+        actor="researcher",
+        project="p1",
+        name="reuse-name",
+        code_commit_sha="abc1234",
+        description=None,
+    )
+    run1 = start_run(db, **common, dataset_content_sha256=sha("ds-a"))
+    complete_run(
+        db,
+        run_id=run1.id,
+        actor="researcher",
+        result_summary="done",
+        expected_version=run1.version,
+    )
+    run2 = start_run(db, **common, dataset_content_sha256=sha("ds-b"))
+    assert run2.status == "running"
+    assert run2.id != run1.id
+
+
+def test_same_name_reuse_after_abort(db):
+    common = dict(
+        actor="researcher",
+        project="p1",
+        name="reuse-abort",
+        code_commit_sha="abc1234",
+        description=None,
+    )
+    run1 = start_run(db, **common, dataset_content_sha256=sha("ds-a"))
+    abort_run(
+        db,
+        run_id=run1.id,
+        actor="researcher",
+        reason="OOM",
+        expected_version=run1.version,
+    )
+    run2 = start_run(db, **common, dataset_content_sha256=sha("ds-b"))
+    assert run2.status == "running"
+    assert run2.id != run1.id

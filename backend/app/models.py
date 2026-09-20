@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    DateTime,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +36,18 @@ class EventStore(Base):
 
 class RunProjection(Base):
     __tablename__ = "run_projections"
+    __table_args__ = (
+        # 同一 project 下禁止并存多条未结束（running）的同名 Run；
+        # 仅约束 running，completed/aborted 后允许再次使用同名。
+        Index(
+            "uq_running_project_name",
+            "project",
+            "name",
+            unique=True,
+            postgresql_where=text("status = 'running'"),
+            sqlite_where=text("status = 'running'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     project: Mapped[str] = mapped_column(String(128), index=True, nullable=False)

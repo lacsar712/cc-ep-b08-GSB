@@ -146,6 +146,17 @@ def _check_expected_version(proj: RunProjection | None, expected_version: int) -
         )
 
 
+def _find_running_by_project_name(
+    db: Session, project: str, name: str
+) -> RunProjection | None:
+    stmt = select(RunProjection).where(
+        RunProjection.project == project,
+        RunProjection.name == name,
+        RunProjection.status.notin_(TERMINAL_STATUSES),
+    )
+    return db.scalars(stmt).first()
+
+
 def start_run(
     db: Session,
     *,
@@ -165,6 +176,13 @@ def start_run(
     if _get_projection(db, aggregate_id) is not None:
         raise ConflictError("Run 已存在")
 
+    duplicate = _find_running_by_project_name(db, project, name)
+    if duplicate is not None:
+        raise ConflictError(
+            f"项目「{project}」下已存在未结束的同名 Run「{name}」"
+            f"（状态：{duplicate.status}），请待其完成或中止后再创建同名 Run"
+        )
+
     event = _append_event(
         db,
         aggregate_id=aggregate_id,
@@ -181,7 +199,15 @@ def start_run(
     )
     proj = _apply_event_to_projection(None, event)
     db.add(proj)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # 并发新建同名 Run 时由部分唯一索引兜底
+        db.rollback()
+        raise ConflictError(
+            f"项目「{project}」下已存在未结束的同名 Run「{name}」，"
+            "请待其完成或中止后再创建同名 Run"
+        ) from exc
     db.refresh(proj)
     return proj
 
